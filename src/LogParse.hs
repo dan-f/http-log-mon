@@ -1,4 +1,4 @@
-module Lib
+module LogParse
   ( parseLogFile
   ) where
 
@@ -6,23 +6,14 @@ import Data.Char
 import Data.Maybe
 import Data.Time
 import Text.ParserCombinators.Parsec
-
-data Request = Request { reqIp :: String
-                       , reqIdent :: Maybe String
-                       , reqUserId :: Maybe String
-                       , reqTime :: UTCTime
-                       , reqMethod :: String
-                       , reqPath :: [String]
-                       , reqProtocol :: String
-                       , reqStatus :: Int
-                       , reqRespSize :: Int
-                       } deriving (Show)
-
-type Log = [Request]
+import Log
+  ( Request(..)
+  , Log
+  )
 
 parseLogFile :: String -> Either ParseError [Request]
 parseLogFile =
-  parse logFile "(unknown)"
+  parse logFile "(Parse Error)"
 
 logFile :: GenParser Char st [Request]
 logFile = do
