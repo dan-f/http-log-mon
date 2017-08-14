@@ -1,25 +1,34 @@
-module LogParse
+module RequestLogParse
   ( parseLogFile
+  , readLogFile
   ) where
 
 import Data.Char
 import Data.Maybe
 import Data.Time
 import Text.ParserCombinators.Parsec
-import Log
+import RequestLog
   ( Request(..)
-  , Log
+  , RequestLog
   )
 
-parseLogFile :: String -> Either ParseError [Request]
+
+readLogFile :: String -> IO (Either ParseError RequestLog)
+readLogFile fileName =
+  readFile fileName >>= return . parseLogFile
+
+
+parseLogFile :: String -> Either ParseError RequestLog
 parseLogFile =
   parse logFile "(Parse Error)"
 
-logFile :: GenParser Char st [Request]
+
+logFile :: GenParser Char st RequestLog
 logFile = do
   possibleRequests <- request `sepEndBy` eol
   optional eof
   return $ catMaybes possibleRequests
+
 
 request :: GenParser Char st (Maybe Request)
 request = do
@@ -48,9 +57,11 @@ request = do
     Just time' ->
       return (Just $ Request ip' ident' userId' time' method' path' protocol' status' respSize')
 
+
 ip :: GenParser Char st String
 ip =
   many1 (oneOf "0123456789.") <?> "ip address"
+
 
 possibleAlphaNum :: GenParser Char st (Maybe String)
 possibleAlphaNum = do
@@ -58,6 +69,7 @@ possibleAlphaNum = do
   if parsed == "-"
     then return Nothing
     else return $ Just parsed
+
 
 time :: GenParser Char st (Maybe UTCTime)
 time = do
@@ -69,18 +81,22 @@ time = do
     "%d/%b/%Y:%H:%M:%S %z"
     dateTimeStr
 
+
 method :: GenParser Char st String
 method =
   many1 letter <?> "method"
+
 
 path :: GenParser Char st [String]
 path = do
   char '/'
   pathSegment `sepEndBy` (char '/')
 
+
 pathSegment :: GenParser Char st String
 pathSegment =
   many1 (noneOf ['/', ' '])
+
 
 protocol :: GenParser Char st String
 protocol =
@@ -90,10 +106,12 @@ protocol =
   try (string "HTTP/2")
   <?> "protocol"
 
+
 positiveInt :: GenParser Char st Int
 positiveInt = do
   digits <- many1 digit <?> "digits"
   return $ foldl (\acc i -> acc * 10 + digitToInt i) 0 digits
+
 
 eol :: GenParser Char st String
 eol =

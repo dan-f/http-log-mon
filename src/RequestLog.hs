@@ -1,9 +1,11 @@
-module Log
+module RequestLog
   ( Request(..)
-  , Log
+  , RequestLog
+  , emptyRequestLog
   ) where
 
 import Data.Time
+
 
 data Request = Request { reqIp :: String
                        , reqIdent :: Maybe String
@@ -16,4 +18,8 @@ data Request = Request { reqIp :: String
                        , reqRespSize :: Int
                        } deriving (Show)
 
-type Log = [Request]
+type RequestLog = [Request]
+
+
+emptyRequestLog :: RequestLog
+emptyRequestLog = []
