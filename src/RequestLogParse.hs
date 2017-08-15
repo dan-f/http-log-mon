@@ -60,7 +60,7 @@ request = do
 
 ip :: GenParser Char st String
 ip =
-  many1 (oneOf "0123456789.") <?> "ip address"
+  many1 (oneOf "0123456789.:abcdef") <?> "ip address"
 
 
 possibleAlphaNum :: GenParser Char st (Maybe String)
@@ -101,6 +101,7 @@ pathSegment =
 protocol :: GenParser Char st String
 protocol =
   try (string "HTTP/1.0") <|>
+  try (string "HTTP/1.1") <|>
   try (string "HTTP/2.0") <|>
   try (string "HTTP/1") <|>
   try (string "HTTP/2")

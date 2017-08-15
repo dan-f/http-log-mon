@@ -8,9 +8,13 @@ import Control.Monad
   ( forever
   , void
   )
+import System.Environment
 import System.IO
 
 import qualified Brick.BChan as BC
+import Data.Time
+  ( getCurrentTime
+  )
 
 import App
 import RequestLogParse
@@ -23,17 +27,20 @@ import RequestLogParse
 -- the main thread.
 main :: IO ()
 main = void $ do
-  let oneSecond = 1000000 -- microseconds
+  args <- getArgs
+  let filename = if null args then "logfile.txt" else head args
+      oneSecond = 1000000 -- microseconds
   channel <- BC.newBChan 10
   -- countdown thread
   forkIO $ forever $ do
     threadDelay oneSecond
-    BC.writeBChan channel SecondTick
+    currentTime <- getCurrentTime
+    BC.writeBChan channel (Tick currentTime)
   -- file parsing thread
   forkIO $ forever $ do
-    parsedLogM <- readLogFile "logfile.txt"
+    parsedLogM <- readLogFile filename
     case parsedLogM of
-      Left err ->
+      Left err -> do
         BC.writeBChan channel (LogError $ "Could not parse the log file:\n\n\t" ++ (show err))
       Right parsedLog ->
         BC.writeBChan channel (LogRead parsedLog)

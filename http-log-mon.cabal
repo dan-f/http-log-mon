@@ -15,24 +15,27 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     RequestLog
+  exposed-modules:     App
+                     , Alert
+                     , RequestLog
                      , RequestLogParse
   build-depends:       base >= 4.7 && < 5
+                     , brick >= 0.23 && <= 1
+                     , containers
                      , parsec
                      , time
+                     , vector
+                     , vty
   default-language:    Haskell2010
 
 executable http-log-mon-exe
   hs-source-dirs:      app
   main-is:             Main.hs
-  other-modules:       App
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
-                     , brick
-                     , containers
+                     , brick >= 0.23 && <= 1
                      , http-log-mon
-                     , vector
-                     , vty
+                     , time
   default-language:    Haskell2010
 
 test-suite http-log-mon-test
@@ -41,6 +44,9 @@ test-suite http-log-mon-test
   main-is:             Spec.hs
   build-depends:       base
                      , http-log-mon
+                     , hspec
+                     , QuickCheck
+                     , time
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 

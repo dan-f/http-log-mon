@@ -2,6 +2,13 @@ module App where
 
 import qualified Data.List as List
 import qualified Data.Map as Map
+import Data.Time
+  ( UTCTime
+  , addUTCTime
+  , getCurrentTime
+  , secondsToDiffTime
+  )
+import qualified Data.Set as S
 import qualified Data.Vector as Vec
 
 import qualified Graphics.Vty as V
@@ -20,6 +27,7 @@ import Brick.Widgets.Core
   , padLeft
   , padRight
   , str
+  , strWrap
   , textWidth
   , vBox
   , vLimit
@@ -27,6 +35,7 @@ import Brick.Widgets.Core
 import qualified Brick.Widgets.List as L
 import qualified Graphics.Vty as V
 
+import Alert
 import RequestLog
 
 
@@ -36,18 +45,20 @@ import RequestLog
 -- Custom event type for app-specific events
 data AppEvent = LogRead RequestLog
               | LogError String
-              | SecondTick
+              | Tick UTCTime
 
 
 -- Name type for identifying widgets
 data Name = TopSections
+          | Alerts
           deriving (Ord, Eq, Show)
 
 
 -- Holds the application state
 data AppState = AppState { requestLog :: RequestLog
-                         , lastError :: String
                          , secondsUntilUpdate :: Int
+                         , currentTime :: UTCTime
+                         , alertHistory :: AlertHistory
                          }
 
 
@@ -56,12 +67,13 @@ data AppState = AppState { requestLog :: RequestLog
 
 -- Runs the app
 run :: BC.BChan AppEvent -> IO AppState
-run channel =
+run channel = do
+  currentTime <- getCurrentTime
   M.customMain
     (V.mkVty V.defaultConfig)
     (Just channel)
     app
-    initialState
+    (initialState currentTime)
 
 
 -- App definition for Brick
@@ -76,11 +88,12 @@ app =
 
 
 -- First value for the application state
-initialState :: AppState
-initialState =
+initialState :: UTCTime -> AppState
+initialState currentTime =
   AppState { requestLog = emptyRequestLog
-           , lastError = ""
            , secondsUntilUpdate = 10
+           , currentTime = currentTime
+           , alertHistory = emptyAlertHistory
            }
 
 
@@ -92,11 +105,12 @@ initialState =
 handleEvent :: AppState -> T.BrickEvent Name AppEvent -> T.EventM Name (T.Next AppState)
 handleEvent s (T.AppEvent (LogRead newLog)) =
   M.continue s { requestLog = newLog }
-handleEvent s (T.AppEvent SecondTick) =
-  let
-    t = secondsUntilUpdate s
-  in
-    M.continue s { secondsUntilUpdate = if t > 1 then t - 1 else 10 }
+handleEvent s (T.AppEvent (Tick newTime)) =
+  M.continue s { currentTime = newTime
+               , secondsUntilUpdate = if t > 1 then t - 1 else 10
+               , alertHistory = updateAlertHistory newTime (requestLog s) (alertHistory s)
+               }
+  where t = secondsUntilUpdate s
 handleEvent s (T.VtyEvent (V.EvKey (V.KChar 'q') [])) =
   M.halt s
 handleEvent s (T.VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl])) =
@@ -120,14 +134,14 @@ root s =
       vBox
         [ C.hCenter (timeUntilUpdate $ secondsUntilUpdate s)
         , C.hCenter $ (topSections $ requestLog s) <+> (statistics $ requestLog s)
-        -- , C.hCenter (alerts $ requestLog s)
+        , C.hCenter $ alerts (alertHistory s)
         ]
   ]
 
 
 timeUntilUpdate :: Int -> T.Widget Name
 timeUntilUpdate seconds =
-  str $ "[ Reading new log data in " ++ (show seconds) ++ " second(s) ]"
+  strWrap $ "[ Reading new log data in " ++ (show seconds) ++ " second(s) ]"
 
 
 statistics :: RequestLog -> T.Widget Name
@@ -136,10 +150,9 @@ statistics l =
     (str "Statistics") $
     vBox
       [ str $ "Total hits: " ++ (show $ length l)
-      , str $ "Unique IPs: "
-      , str $ "Mean. response size: "
-      , str $ "Median. response size: "
-      , str $ "Largest pages: "
+      , str $ "Unique IPs: " ++ (show $ uniqueIpAddrs l)
+      , str $ "Mean response size: " ++ (show $ meanRespSize l)
+      , str $ "Median response size: " ++ (show $ medianRespSize l)
       ]
 
 
@@ -155,7 +168,6 @@ topSections l =
         (Vec.fromList sortedSections)
         1
   in
-    hLimit 50 $
     B.borderWithLabel (str "Top Sections") $
       vBox
         [ (vLimit 1 $ str "Section" <+> fill ' ' <+> str "Hits")
@@ -176,6 +188,33 @@ section hasFocus (sectionName, hits) =
     pathWidget <+> (fill '.') <+> hitCountWidget
 
 
+alerts :: [Alert] -> T.Widget Name
+alerts alertHistory =
+  let
+    brickList =
+      L.list
+        Alerts
+        (Vec.fromList alertHistory)
+        1
+  in
+    B.borderWithLabel (str "Alerts") $
+      L.renderList
+        alert
+        True
+        brickList
+
+alert :: Bool -> Alert -> T.Widget Name
+alert hasFocus a =
+  let
+    alertText = "* High traffic generated an alert - hits = " ++ (show $ hits a) ++ ", triggered at " ++ (show $ triggered a)
+    timeRecovered = recovered a
+  in
+    case timeRecovered of
+      Nothing ->
+        strWrap alertText
+      Just t ->
+        strWrap $ alertText ++ "[Recovered at " ++ (show t) ++ "]"
+
 theMap :: A.AttrMap
 theMap =
   A.attrMap
@@ -192,7 +231,7 @@ buildSectionMap =
     (\m req ->
       let
         path = reqPath req
-        sectionName = if null path then "/" else ("/" ++ head path)
+        sectionName = if null path then "/" else ("/" ++ (clean $ head path))
       in
         if (Map.member sectionName m)
           then Map.update
@@ -202,3 +241,34 @@ buildSectionMap =
           else Map.insert sectionName 1 m
     )
     Map.empty
+  where
+    clean = takeWhile (/= '?')
+
+
+uniqueIpAddrs :: RequestLog -> Int
+uniqueIpAddrs reqLog =
+  length $
+    foldl
+      (\ipSet req ->
+        S.insert (reqIp req) ipSet
+      )
+      S.empty
+      reqLog
+
+
+meanRespSize :: RequestLog -> Int
+meanRespSize reqLog =
+  if (null respSizes)
+    then 0
+    else (sum respSizes) `quot` (length respSizes)
+  where
+    respSizes = map reqRespSize reqLog
+
+
+medianRespSize :: RequestLog -> Int
+medianRespSize reqLog =
+  if (null respSizes)
+    then 0
+    else respSizes !! (length respSizes `quot` 2)
+  where
+    respSizes = map reqRespSize reqLog
