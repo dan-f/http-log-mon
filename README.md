@@ -21,7 +21,7 @@ $ stack build
 Finally, run it!
 
 ```sh
-$ stack exec http-log-mon-exe path/to/logfile.txt
+$ stack exec http-log-mon-exe path/to/logfile.txt # logfile.txt provided for testing
 ```
 
 ## Testing
